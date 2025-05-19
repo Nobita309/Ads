@@ -35,7 +35,7 @@ jobs:
       - name: pro
         run: |
           echo "Downloading hagezi pro block list..."
-          curl -s 'https://raw.githubusercontent.com/hagezi/dns-blocklists/main/domains/pro.plus.txt' -o pro.plus.txt
+          curl -s 'https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@main/domains/pro.plus.txt' -o pro.plus.txt
           awk 'BEGIN {header_inserted=0} 
                /^#/ { 
                  print; 
@@ -51,7 +51,7 @@ jobs:
       - name: tif
         run: |
           echo "Downloading hagezi tif block list..."
-          curl -s 'https://raw.githubusercontent.com/hagezi/dns-blocklists/main/domains/tif.txt' -o tif.txt
+          curl -s 'https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@main/domains/tif.txt' -o tif.txt
           awk 'BEGIN {header_inserted=0} 
                /^#/ { 
                  print; 
