@@ -1,0 +1,53 @@
+name: adblock
+
+on:
+  schedule:
+    - cron: '0 */1 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Delete previous workflow runs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PREVIOUS_RUNS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/${{ github.repository }}/actions/runs" | jq -r '.workflow_runs[] | select(.status == "completed") | .id')
+          for run_id in $PREVIOUS_RUNS; do
+          echo "Deleting workflow run ID: $run_id"
+          curl -X DELETE -H "Authorization: token $GITHUB_TOKEN" "https://api.github.com/repos/${{ github.repository }}/actions/runs/$run_id"
+          done
+
+      - name: Generate all YAML in parallel (background)
+        run: |
+            set -e
+            gen() {
+                URL="$1"; OUT="$2"
+                CONTENT=$(curl -fsL "$URL")
+                echo "$CONTENT" | grep '^#' > "$OUT"
+                echo "payload:" >> "$OUT"
+                echo "$CONTENT" | grep -v -e '^#' -e '^$' | sed 's/^/  - DOMAIN-WILDCARD,/' >> "$OUT"
+                echo "Generated $OUT"
+            }
+            gen "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/pro.txt" pro.yaml &
+            gen "https://big.oisd.nl/domainswild" oisd.yaml &
+            gen "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/tif.txt" tif.yaml &
+            wait
+
+      - name: Commit and push if there are changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add *.yaml
+          if ! git diff --staged --quiet; then
+            git commit -m "Update adblock rule files"
+            git push
+          else
+            echo "No changes to commit."
+          fi
