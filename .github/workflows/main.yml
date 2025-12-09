@@ -21,16 +21,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           PREVIOUS_RUNS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
             "https://api.github.com/repos/${{ github.repository }}/actions/runs" | \
             jq -r '.workflow_runs[] | select(.status == "completed") | .id')
           for run_id in $PREVIOUS_RUNS; do
             echo "Deleting workflow run ID: $run_id"
             curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
-              "https://api.github.com/repos/${{ github.repository }}/actions/runs/$run_id"
-          done || true
+              "https://api.github.com/repos/${{ github.repository }}/actions/runs/$run_id" || true
+          done
 
-      - name: Install Mihomo (auto-detect asset, prefer .deb, fallback .gz)
+      - name: Install Mihomo (auto-detect asset; prefer .deb, fallback .gz)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -38,33 +39,18 @@ jobs:
 
           arch="$(dpkg --print-architecture)"
 
-          if [ -n "${VERSION:-}" ]; then
-            echo "Using fixed tag: ${VERSION}"
-            rel_json=$(curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" \
-              "https://api.github.com/repos/MetaCubeX/mihomo/releases/tags/${VERSION}")
-          else
-            echo "Fetching latest release"
-            rel_json=$(curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" \
-              "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest")
-          fi
+          rel_json=$(curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" \
+            "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest")
 
           deb_url=$(echo "$rel_json" | jq -r \
-            --arg arch "$arch" --arg ch "$channel" '
+            --arg arch "$arch" '
               .assets[]
               | select(.name | test("^mihomo-linux-" + $arch + "-"))
               | select(.name | endswith(".deb"))
               | .browser_download_url
             ' | head -n 1)
 
-          gz_url=$(echo "$rel_json" | jq -r \
-            --arg arch "$arch" --arg ch "$channel" '
-              .assets[]
-              | select(.name | test("^mihomo-linux-" + $arch + "-"))
-              | select(.name | endswith(".gz"))
-              | .browser_download_url
-            ' | head -n 1)
-
-
+          # Fallback: asset .gz cho linux-<arch>
           gz_url=$(echo "$rel_json" | jq -r \
             --arg arch "$arch" '
               .assets[]
