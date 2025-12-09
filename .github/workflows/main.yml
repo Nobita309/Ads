@@ -17,10 +17,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Ensure jq is available
-        run: |
-          set -euo pipefail
-
       - name: Delete previous workflow runs
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -55,7 +51,7 @@ jobs:
           deb_url=$(echo "$rel_json" | jq -r \
             --arg arch "$arch" --arg ch "$channel" '
               .assets[]
-              | select(.name | test("^mihomo-linux-" + $arch + "-" + $ch))
+              | select(.name | test("^mihomo-linux-" + $arch + "-"))
               | select(.name | endswith(".deb"))
               | .browser_download_url
             ' | head -n 1)
