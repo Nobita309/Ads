@@ -1,165 +1,147 @@
+
 name: adblock
 
 on:
   schedule:
-    - cron: '0 */1 * * *'
+    - cron: '0 */1 * * *'   # chạy mỗi giờ
   workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Kênh build: v1 / v2 / v3 / alpha'
+        type: choice
+        required: true
+        default: v1
+        options:
+          - v1
+          - v2
+          - v3
+          - alpha
+      version:
+        description: 'Tag phiên bản (ví dụ: v1.19.17). Để trống = latest'
+        type: string
+        required: false
+      delete_old_runs:
+        description: 'Xóa các workflow run đã completed (an toàn)'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
-  actions: write
-  contents: write
+  actions: write   # cần để xóa run cũ nếu bật delete_old_runs
+  contents: write  # cần để commit & push *.mrs
+
+concurrency:
+  group: adblock
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Delete previous workflow runs
+      - name: Optionally delete previous completed workflow runs
+        if: ${{ inputs.delete_old_runs }}
         env:
+          GH_REPO: ${{ github.repository }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          PREVIOUS_RUNS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/runs" | \
-            jq -r '.workflow_runs[] | select(.status == "completed") | .id')
-          for run_id in $PREVIOUS_RUNS; do
-            echo "Deleting workflow run ID: $run_id"
-            curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
-              "https://api.github.com/repos/${{ github.repository }}/actions/runs/$run_id"
-          done || true
-
-      - name: Install latest mihomo
-        run: |
-          download_beta=false
-          download_version=""
-
-          while [ $# -gt 0 ]; do
-            case "$1" in
-              --beta)
-                download_beta=true
-                shift
-                ;;
-              --version)
-                shift
-                if [ $# -eq 0 ]; then
-                  echo "Missing argument for --version"
-                  echo "Usage: $0 [--beta] [--version <version>]"
-                  exit 1
-                fi
-                download_version="$1"
-                shift
-                ;;
-              *)
-                echo "Unknown argument: $1"
-                echo "Usage: $0 [--beta] [--version <version>]"
-                exit 1
-                ;;
-            esac
+          set -euo pipefail
+          # Chỉ lấy các run đã completed và không phải run hiện tại
+          page=1
+          while :; do
+            resp=$(curl -fsSL -H "Authorization: token $GITHUB_TOKEN" \
+              "https://api.github.com/repos/$GH_REPO/actions/runs?status=completed&per_page=100&page=$page")
+            ids=$(echo "$resp" | jq -r '.workflow_runs[] | select(.id != '"${{ github.run_id }}"') | .id')
+            [ -z "$ids" ] && break
+            for rid in $ids; do
+              echo "Deleting workflow run ID: $rid"
+              curl -fsSL -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+                "https://api.github.com/repos/$GH_REPO/actions/runs/$rid" || true
+            done
+            page=$((page+1))
           done
 
-          if command -v pacman >/dev/null 2>&1; then
-            os="linux"
-            arch=$(uname -m)
-            package_suffix=".pkg.tar.zst"
-            package_install="pacman -U --noconfirm"
-          elif command -v dpkg >/dev/null 2>&1; then
-            os="linux"
-            arch=$(dpkg --print-architecture)
-            package_suffix=".deb"
-            package_install="dpkg -i"
-          elif command -v dnf >/dev/null 2>&1; then
-            os="linux"
-            arch=$(uname -m)
-            package_suffix=".rpm"
-            package_install="dnf install -y"
-          elif command -v rpm >/dev/null 2>&1; then
-            os="linux"
-            arch=$(uname -m)
-            package_suffix=".rpm"
-            package_install="rpm -i"
-          elif command -v opkg >/dev/null 2>&1; then
-            os="openwrt"
-            . /etc/os-release
-            arch="$OPENWRT_ARCH"
-            package_suffix=".ipk"
-            package_install="opkg update && opkg install"
+      - name: Install Mihomo (auto-detect asset, prefer .deb, fallback .gz)
+        env:
+          CHANNEL: ${{ inputs.channel }}
+          VERSION: ${{ inputs.version }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          arch="$(dpkg --print-architecture)"   # ví dụ: amd64
+          channel="${CHANNEL:-v1}"
+
+          # Lấy JSON release theo VERSION (nếu có) hoặc latest
+          if [ -n "${VERSION:-}" ]; then
+            echo "Using fixed tag: ${VERSION}"
+            rel_json=$(curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" \
+              "https://api.github.com/repos/MetaCubeX/mihomo/releases/tags/${VERSION}")
           else
-            echo "Missing supported package manager."
+            echo "Fetching latest release"
+            rel_json=$(curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" \
+              "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest")
+          fi
+
+          # Ưu tiên asset .deb cho linux-<arch> + channel, nếu không có thì lấy .gz
+          deb_url=$(echo "$rel_json" | jq -r \
+            --arg arch "$arch" --arg ch "$channel" '
+              .assets[]
+              | select(.name | test("^mihomo-linux-" + $arch + "-" + $ch))
+              | select(.name | endswith(".deb"))
+              | .browser_download_url
+            ' | head -n 1)
+
+          gz_url=$(echo "$rel_json" | jq -r \
+            --arg arch "$arch" --arg ch "$channel" '
+              .assets[]
+              | select(.name | test("^mihomo-linux-" + $arch + "-" + $ch))
+              | select(.name | endswith(".gz"))
+              | .browser_download_url
+            ' | head -n 1)
+
+          if [ -n "$deb_url" ] && [ "$deb_url" != "null" ]; then
+            echo "Downloading .deb: $deb_url"
+            curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" -o mihomo.deb "$deb_url"
+            sudo dpkg -i mihomo.deb || (sudo apt-get update && sudo apt-get -f install -y && sudo dpkg -i mihomo.deb)
+            rm -f mihomo.deb
+          elif [ -n "$gz_url" ] && [ "$gz_url" != "null" ]; then
+            echo "Downloading .gz: $gz_url"
+            curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" -o mihomo.gz "$gz_url"
+            gunzip -c mihomo.gz > mihomo
+            rm -f mihomo.gz
+            chmod +x mihomo
+            sudo mv mihomo /usr/local/bin/mihomo
+          else
+            echo "No matching asset found for linux-$arch channel=$channel in release."
+            echo "Please check tag/channel on the Releases page." >&2
             exit 1
           fi
 
-          if [ -z "$download_version" ]; then
-            if [ "$download_beta" != "true" ]; then
-              if [ -n "$GITHUB_TOKEN" ]; then
-                latest_release=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
-                  https://api.github.com/repos/MetaCubeX/mihomo/releases/latest)
-              else
-                latest_release=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/releases/latest)
-              fi
-              curl_exit_status=$?
-              if [ $curl_exit_status -ne 0 ]; then
-                exit $curl_exit_status
-              fi
-              if [ "$(echo "$latest_release" | grep tag_name | wc -l)" -eq 0 ]; then
-                echo "$latest_release"
-                exit 1
-              fi
-              download_version=$(echo "$latest_release" | grep tag_name | head -n 1 | \
-                awk -F: '{print $2}' | sed 's/[", v]//g')
-            else
-              if [ -n "$GITHUB_TOKEN" ]; then
-                latest_release=$(curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
-                  https://api.github.com/repos/MetaCubeX/mihomo/releases)
-              else
-                latest_release=$(curl -s https://api.github.com/repos/MetaCubeX/mihomo/releases)
-              fi
-              curl_exit_status=$?
-              if [ $curl_exit_status -ne 0 ]; then
-                exit $curl_exit_status
-              fi
-              if [ "$(echo "$latest_release" | grep tag_name | wc -l)" -eq 0 ]; then
-                echo "$latest_release"
-                exit 1
-              fi
-              download_version=$(echo "$latest_release" | grep tag_name | head -n 1 | \
-                awk -F: '{print $2}' | sed 's/[", v]//g')
-            fi
-          fi
-
-          package_name="mihomo-${os}-${arch}-v${download_version}${package_suffix}"
-          package_url="https://github.com/MetaCubeX/mihomo/releases/download/v${download_version}/${package_name}"
-
-          echo "Downloading $package_url"
-          if [ -n "$GITHUB_TOKEN" ]; then
-            curl --fail -Lo "$package_name" -H "Authorization: token ${GITHUB_TOKEN}" "$package_url"
+          echo "Installed Mihomo version:"
+          if command -v mihomo >/dev/null 2>&1; then
+            mihomo -v || true
           else
-            curl --fail -Lo "$package_name" "$package_url"
+            /usr/bin/mihomo -v || true
           fi
-
-          curl_exit_status=$?
-          if [ $curl_exit_status -ne 0 ]; then
-            exit $curl_exit_status
-          fi
-
-          if command -v sudo >/dev/null 2>&1; then
-            package_install="sudo $package_install"
-          fi
-
-          echo "$package_install $package_name"
-          sh -c "$package_install \"$package_name\""
-          rm -f "$package_name"
 
       - name: Download and convert TXT to MRS in parallel
         run: |
-          set -e
+          set -euo pipefail
+
           conv() {
             URL="$1"; OUT="$2"
-            curl -fsL "$URL" -o "${OUT}.txt"
+            echo "Fetching $URL -> ${OUT}.txt"
+            curl -fsSL "$URL" -o "${OUT}.txt"
+            echo "Converting ${OUT}.txt -> ${OUT}.mrs"
             mihomo convert-ruleset domain text "${OUT}.txt" "${OUT}.mrs"
-            rm "${OUT}.txt"
+            rm -f "${OUT}.txt"
             echo "Converted ${OUT}.mrs"
           }
+
           conv "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/pro.txt" pro &
           conv "https://big.oisd.nl/domainswild" oisd &
           conv "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/tif.txt" tif &
@@ -167,9 +149,10 @@ jobs:
 
       - name: Commit and push if there are changes
         run: |
+          set -euo pipefail
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add *.mrs
+          git add *.mrs || true
           if ! git diff --staged --quiet; then
             git commit -m "Update adblock MRS files"
             git push
