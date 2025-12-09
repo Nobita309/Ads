@@ -3,79 +3,41 @@ name: adblock
 
 on:
   schedule:
-    - cron: '0 */1 * * *'   # chạy mỗi giờ
+    - cron: '0 */1 * * *'
   workflow_dispatch:
-    inputs:
-      channel:
-        description: 'Kênh build: v1 / v2 / v3 / alpha'
-        type: choice
-        required: true
-        default: v1
-        options:
-          - v1
-          - v2
-          - v3
-          - alpha
-      version:
-        description: 'Tag phiên bản (ví dụ: v1.19.17). Để trống = latest'
-        type: string
-        required: false
-      delete_old_runs:
-        description: 'Xóa các workflow run đã completed (an toàn)'
-        type: boolean
-        required: false
-        default: false
 
 permissions:
-  actions: write   # cần để xóa run cũ nếu bật delete_old_runs
-  contents: write  # cần để commit & push *.mrs
-
-concurrency:
-  group: adblock
-  cancel-in-progress: true
+  actions: write
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Optionally delete previous completed workflow runs
-        if: ${{ inputs.delete_old_runs }}
+      - name: Delete previous workflow runs
         env:
-          GH_REPO: ${{ github.repository }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -euo pipefail
-          # Chỉ lấy các run đã completed và không phải run hiện tại
-          page=1
-          while :; do
-            resp=$(curl -fsSL -H "Authorization: token $GITHUB_TOKEN" \
-              "https://api.github.com/repos/$GH_REPO/actions/runs?status=completed&per_page=100&page=$page")
-            ids=$(echo "$resp" | jq -r '.workflow_runs[] | select(.id != '"${{ github.run_id }}"') | .id')
-            [ -z "$ids" ] && break
-            for rid in $ids; do
-              echo "Deleting workflow run ID: $rid"
-              curl -fsSL -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
-                "https://api.github.com/repos/$GH_REPO/actions/runs/$rid" || true
-            done
-            page=$((page+1))
-          done
+          PREVIOUS_RUNS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs" | \
+            jq -r '.workflow_runs[] | select(.status == "completed") | .id')
+          for run_id in $PREVIOUS_RUNS; do
+            echo "Deleting workflow run ID: $run_id"
+            curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/runs/$run_id"
+          done || true
 
       - name: Install Mihomo (auto-detect asset, prefer .deb, fallback .gz)
         env:
-          CHANNEL: ${{ inputs.channel }}
-          VERSION: ${{ inputs.version }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
-          arch="$(dpkg --print-architecture)"   # ví dụ: amd64
-          channel="${CHANNEL:-v1}"
+          arch="$(dpkg --print-architecture)"
 
-          # Lấy JSON release theo VERSION (nếu có) hoặc latest
           if [ -n "${VERSION:-}" ]; then
             echo "Using fixed tag: ${VERSION}"
             rel_json=$(curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" \
@@ -86,7 +48,6 @@ jobs:
               "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest")
           fi
 
-          # Ưu tiên asset .deb cho linux-<arch> + channel, nếu không có thì lấy .gz
           deb_url=$(echo "$rel_json" | jq -r \
             --arg arch "$arch" --arg ch "$channel" '
               .assets[]
@@ -98,35 +59,40 @@ jobs:
           gz_url=$(echo "$rel_json" | jq -r \
             --arg arch "$arch" --arg ch "$channel" '
               .assets[]
-              | select(.name | test("^mihomo-linux-" + $arch + "-" + $ch))
+              | select(.name | test("^mihomo-linux-" + $arch + "-"))
+              | select(.name | endswith(".gz"))
+              | .browser_download_url
+            ' | head -n 1)
+
+
+          gz_url=$(echo "$rel_json" | jq -r \
+            --arg arch "$arch" '
+              .assets[]
+              | select(.name | test("^mihomo-linux-" + $arch + "-"))
               | select(.name | endswith(".gz"))
               | .browser_download_url
             ' | head -n 1)
 
           if [ -n "$deb_url" ] && [ "$deb_url" != "null" ]; then
             echo "Downloading .deb: $deb_url"
-            curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" -o mihomo.deb "$deb_url"
+            curl -fsSL -o mihomo.deb "$deb_url"
             sudo dpkg -i mihomo.deb || (sudo apt-get update && sudo apt-get -f install -y && sudo dpkg -i mihomo.deb)
             rm -f mihomo.deb
           elif [ -n "$gz_url" ] && [ "$gz_url" != "null" ]; then
             echo "Downloading .gz: $gz_url"
-            curl -fsSL -H "Authorization: token ${GITHUB_TOKEN}" -o mihomo.gz "$gz_url"
+            curl -fsSL -o mihomo.gz "$gz_url"
             gunzip -c mihomo.gz > mihomo
             rm -f mihomo.gz
             chmod +x mihomo
             sudo mv mihomo /usr/local/bin/mihomo
           else
-            echo "No matching asset found for linux-$arch channel=$channel in release."
-            echo "Please check tag/channel on the Releases page." >&2
+            echo "No matching asset found for linux-$arch (.deb/.gz) in latest release." >&2
+            echo "$rel_json" | jq '{tag_name, assets: [.assets[].name]}'
             exit 1
           fi
 
           echo "Installed Mihomo version:"
-          if command -v mihomo >/dev/null 2>&1; then
-            mihomo -v || true
-          else
-            /usr/bin/mihomo -v || true
-          fi
+          (mihomo -v || /usr/bin/mihomo -v || true)
 
       - name: Download and convert TXT to MRS in parallel
         run: |
