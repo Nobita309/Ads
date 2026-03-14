@@ -86,17 +86,19 @@ jobs:
 
           conv() {
             URL="$1"; OUT="$2"
-            echo "Fetching $URL -> ${OUT}.txt"
-            curl -fsSL "$URL" -o "${OUT}.txt"
-            echo "Converting ${OUT}.txt -> ${OUT}.mrs"
+            while true; do
+              curl -fsSL "$URL" -o "${OUT}.txt" && break
+              echo "Retrying $OUT..."
+              sleep 2
+            done
             mihomo convert-ruleset domain text "${OUT}.txt" "${OUT}.mrs"
             rm -f "${OUT}.txt"
             echo "Converted ${OUT}.mrs"
           }
 
-          conv "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/pro.txt" pro &
-          conv "https://big.oisd.nl/domainswild" oisd &
-          conv "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/tif.txt" tif &
+          conv "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/domains/pro.txt" pro &
+          conv "https://big.oisd.nl/domainswild2" oisd &
+          conv "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/domains/tif.txt" tif &
           wait
 
       - name: Commit and push if there are changes
