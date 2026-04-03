@@ -81,9 +81,9 @@ jobs:
             echo "Converted ${OUT}.mrs"
           }
 
-          conv "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/pro-onlydomains.txt" pro &
-          conv "https://cdn.jsdelivr.net/gh/StevenBlack/hosts@master/hosts" oisd &
-          conv "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/tif-onlydomains.txt" tif &
+          conv "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/adblock/pro.txt" pro &
+          conv "https://big.oisd.nl" oisd &
+          conv "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/adblock/tif.txt" tif &
           wait
 
       - name: Commit and push if there are changes
