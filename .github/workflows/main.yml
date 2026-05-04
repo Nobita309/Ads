@@ -72,22 +72,17 @@ jobs:
           conv() {
             URL="$1"; OUT="$2"
             while true; do
-          curl -fsSL "$URL" -o "${OUT}.raw.txt" && break
-          echo "Retrying $OUT..."
-          sleep 2
-          done
-
-          sed 's/#.*$//' "${OUT}.raw.txt" \
-          | sed '/^[[:space:]]*$/d' \
-          > "${OUT}.txt"
-
+              curl -fsSL "$URL" -o "${OUT}.txt" && break
+              echo "Retrying $OUT..."
+              sleep 2
+            done
             mihomo convert-ruleset domain text "${OUT}.txt" "${OUT}.mrs"
-            rm -f "${OUT}.raw.txt" "${OUT}.txt"
+            rm -f "${OUT}.txt"
             echo "Converted ${OUT}.mrs"
           }
 
           conv "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/pro-onlydomains.txt" pro &
-          conv "https://cdn.jsdelivr.net/gh/StevenBlack/hosts@master/hosts" oisd &
+          conv "https://big.oisd.nl/domainswild2" oisd &
           conv "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/tif-onlydomains.txt" tif &
           wait
 
