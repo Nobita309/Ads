@@ -72,12 +72,17 @@ jobs:
           conv() {
             URL="$1"; OUT="$2"
             while true; do
-              curl -fsSL "$URL" -o "${OUT}.txt" && break
-              echo "Retrying $OUT..."
-              sleep 2
-            done
+          curl -fsSL "$URL" -o "${OUT}.raw.txt" && break
+          echo "Retrying $OUT..."
+          sleep 2
+          done
+
+          sed 's/#.*$//' "${OUT}.raw.txt" \
+          | sed '/^[[:space:]]*$/d' \
+          > "${OUT}.txt"
+
             mihomo convert-ruleset domain text "${OUT}.txt" "${OUT}.mrs"
-            rm -f "${OUT}.txt"
+            rm -f "${OUT}.raw.txt" "${OUT}.txt"
             echo "Converted ${OUT}.mrs"
           }
 
