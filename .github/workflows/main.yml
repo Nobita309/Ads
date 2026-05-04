@@ -82,7 +82,7 @@ jobs:
           }
 
           conv "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/pro-onlydomains.txt" pro &
-          conv "https://big.oisd.nl/domainswild2" oisd &
+          conv "https://cdn.jsdelivr.net/gh/StevenBlack/hosts@master/hosts" oisd &
           conv "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/tif-onlydomains.txt" tif &
           wait
 
