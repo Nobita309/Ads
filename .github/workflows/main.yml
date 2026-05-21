@@ -114,7 +114,6 @@ jobs:
               sleep 2
             done
 
-            # chuẩn hóa về format list trước khi convert
             normalize_to_list "${OUT}.raw.txt" "${OUT}.txt"
 
             mihomo convert-ruleset domain text "${OUT}.txt" "${OUT}.mrs"
