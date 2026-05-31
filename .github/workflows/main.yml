@@ -69,55 +69,15 @@ jobs:
         run: |
           set -euo pipefail
 
-          normalize_to_list() {
-            in_file="$1"
-            out_file="$2"
-
-            awk '
-              {
-                gsub(/\r/, "")
-                line=$0
-
-                sub(/^[[:space:]]+/, "", line)
-                sub(/[[:space:]]+$/, "", line)
-
-                if (line=="" || line ~ /^!/ || line ~ /^#/) next
-
-                sub(/^(0\.0\.0\.0|127\.0\.0\.1|::1)[[:space:]]+/, "", line)
-                sub(/^\|\|/, "", line)
-                sub(/^\*\./, "", line)
-                sub(/^\+\./, "", line)
-                sub(/^\./, "", line)
-
-                sub(/^https?:\/\//, "", line)
-                sub(/^\[/, "", line)
-                sub(/\].*$/, "", line)
-                sub(/\^.*$/, "", line)
-                sub(/\/.*$/, "", line)
-                sub(/\$.*$/, "", line)
-
-                split(line, parts, /[[:space:]]+/)
-                d=parts[1]
-
-                if (d ~ /^[A-Za-z0-9.-]+$/ && d ~ /\./) {
-                  print "+." tolower(d)
-                }
-              }
-            ' "$in_file" | awk '!seen[$0]++' > "$out_file"
-          }
-
           conv() {
             URL="$1"; OUT="$2"
             while true; do
-              curl -fsSL "$URL" -o "${OUT}.raw.txt" && break
+              curl -fsSL "$URL" -o "${OUT}.txt" && break
               echo "Retrying $OUT..."
               sleep 2
             done
-
-            normalize_to_list "${OUT}.raw.txt" "${OUT}.txt"
-
             mihomo convert-ruleset domain text "${OUT}.txt" "${OUT}.mrs"
-            rm -f "${OUT}.raw.txt" "${OUT}.txt"
+            rm -f "${OUT}.txt"
             echo "Converted ${OUT}.mrs"
           }
 
