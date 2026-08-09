@@ -76,14 +76,15 @@ jobs:
               echo "Retrying $OUT..."
               sleep 2
             done
+            sed -i 's/^\*\./+./' "${OUT}.txt"
             mihomo convert-ruleset domain text "${OUT}.txt" "${OUT}.mrs"
             rm -f "${OUT}.txt"
             echo "Converted ${OUT}.mrs"
           }
 
-          conv "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/pro-onlydomains.txt" pro &
-          conv "https://big.oisd.nl/domainswild2" oisd &
-          conv "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/tif-onlydomains.txt" tif &
+          conv "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/pro.txt" pro &
+          conv "https://big.oisd.nl/domainswild" oisd &
+          conv "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/tif.txt" tif &
           wait
 
 
