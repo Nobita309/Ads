@@ -82,9 +82,9 @@ jobs:
             echo "Converted ${OUT}.mrs"
           }
 
-          conv "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/pro.txt" pro &
-          conv "https://big.oisd.nl/domainswild" oisd &
-          conv "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/tif.txt" tif &
+          conv "https://gitlab.com/hagezi/mirror/-/raw/main/dns-blocklists/adblock/pro.txt" pro &
+          conv "https://big.oisd.nl/" oisd &
+          conv "https://gitlab.com/hagezi/mirror/-/raw/main/dns-blocklists/adblock/tif.txt" tif &
           wait
 
 
