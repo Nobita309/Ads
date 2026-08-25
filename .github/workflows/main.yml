@@ -76,14 +76,15 @@ jobs:
               echo "Retrying $OUT..."
               sleep 2
             done
+            sed -i 's/^\*\./+./' "${OUT}.txt"
             mihomo convert-ruleset domain text "${OUT}.txt" "${OUT}.mrs"
             rm -f "${OUT}.txt"
             echo "Converted ${OUT}.mrs"
           }
 
-          conv "https://hagezi-mirror.dnsbunker.org/adblock/pro.txt" pro &
-          conv "https://big.oisd.nl/" oisd &
-          conv "https://hagezi-mirror.dnsbunker.org/adblock/tif.txt" tif &
+          conv "https://hagezi-mirror.dnsbunker.org/wildcard/pro.txt" pro &
+          conv "https://big.oisd.nl/domainswild" oisd &
+          conv "https://hagezi-mirror.dnsbunker.org/wildcard/tif.txt" tif &
           wait
 
 
